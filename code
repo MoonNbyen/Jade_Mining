@@ -1,0 +1,260 @@
+rm(list= ls())
+getwd()
+# Installations
+if (Sys.info()["sysname"] == 'Darwin'){
+  Sys.setenv(LDFLAGS="-L/usr/local/opt/openssl@1.1/lib",
+             CPPFLAGS="-I/usr/local/opt/openssl@1.1/include",
+             PKG_CONFIG_PATH="/usr/local/opt/openssl@1.1/lib/pkgconfig",
+             LIBRARY_PATH=paste(Sys.getenv("LIBRARY_PATH"),
+                                "/usr/local/opt/openssl@1.1/lib",
+                                sep=""))
+  dir.create(path = Sys.getenv("R_LIBS_USER"), showWarnings = FALSE, recursive = TRUE)
+  install.packages("xml2", configure.vars='INCLUDE_DIR=/usr/local/opt/libxml2/include/libxml2 LIB_DIR=/usr/local/opt/libxml2/lib/')
+  install.packages('curl', lib = Sys.getenv("R_LIBS_USER"))
+  install.packages('httr')
+  install.packages("aws.s3", repos = c("cloudyr" = "http://cloudyr.github.io/drat"))
+} else { # On Windows
+  install.packages("aws.s3", repos = c("cloudyr" = "http://cloudyr.github.io/drat"), INSTALL_opts = "--no-multiarch")
+  # if not working use:
+  # install.packages("aws.s3", repos = c("cloudyr" = "http://cloudyr.github.io/drat"))
+}
+
+#Loading the rvest package
+if (Sys.info()["sysname"] == 'Darwin'){
+  Sys.setenv(LDFLAGS="-L/usr/local/opt/openssl@1.1/lib",
+             CPPFLAGS="-I/usr/local/opt/openssl@1.1/include",
+             PKG_CONFIG_PATH="/usr/local/opt/openssl@1.1/lib/pkgconfig",
+             LIBRARY_PATH=paste(Sys.getenv("LIBRARY_PATH"),
+                                "/usr/local/opt/openssl@1.1/lib",
+                                sep=""))
+  dir.create(path = Sys.getenv("R_LIBS_USER"), showWarnings = FALSE, recursive = TRUE)
+  install.packages("xml2", configure.vars='INCLUDE_DIR=/usr/local/opt/libxml2/include/libxml2 LIB_DIR=/usr/local/opt/libxml2/lib/')
+} else {  
+  install.packages("xml2")
+}
+
+
+install.packages("aws.translate", repos = c(getOption("repos"), "http://cloudyr.github.io/drat"))
+install.packages("aws.comprehend", repos = c(cloudyr = "http://cloudyr.github.io/drat", getOption("repos")))
+install.packages("paws")
+install.packages("data.table")
+install.packages("xml2")
+
+
+#Loading the library
+
+library(rvest)
+library(aws.s3)
+library("aws.comprehend")
+library("aws.translate")
+library(paws.machine.learning)
+library("data.table")
+library(xml2)
+
+
+
+
+# Set up your R w/ AWS
+
+keyfile = list.files(path=".", pattern="accessKeys.csv", full.names=TRUE)
+if (identical(keyfile, character(0))){
+  stop("ERROR: AWS key file not found")
+} 
+
+keyTable <- read.csv(keyfile, header = T) # *accessKeys.csv == the CSV downloaded from AWS containing your Access & Secret keys
+AWS_ACCESS_KEY_ID <- as.character(keyTable$Access.key.ID)
+AWS_SECRET_ACCESS_KEY <- as.character(keyTable$Secret.access.key)
+
+#activate
+Sys.setenv("AWS_ACCESS_KEY_ID" = AWS_ACCESS_KEY_ID,
+           "AWS_SECRET_ACCESS_KEY" = AWS_SECRET_ACCESS_KEY,
+           "AWS_DEFAULT_REGION" = "eu-west-1") 
+
+bucketlist()
+get_location("ceu-2003152")
+
+
+# Reading the HTML code from the website
+
+links<-("https://pulitzercenter.org/stories/myanmars-largest-jade-mining-town-semi-precious-stone-prized-chinese-costs-more-money")
+page<-read_html(links)
+
+# Using CSS selectors to scrape the heading section
+
+paragraph_html=html_nodes(page,'#block-particle-content .field__item p')
+paragraph=html_text(paragraph_html)
+
+# Translation
+# Translate from Eng to Hungarian
+
+
+hu_trans <- NULL
+hu_tr <- NULL
+for (i in 1:length(paragraph)) {
+  hu_tr <- translate(paragraph[i], from = "en", to = "hu")[1]
+  hu_trans <- (rbind(hu_trans, hu_tr))
+}
+
+hu_trans <- as.character(hu_trans)
+hu_trans
+
+# Translate to Russian
+ru_trans <- NULL
+ru_tr <- NULL 
+for (i in 1:length(paragraph)){ 
+  ru_tr <- translate(paragraph[i], from ="auto", to ="ru")[1]
+  ru_trans <- (rbind(ru_trans,ru_tr))
+}
+
+ru_trans <- as.character(ru_trans)
+ru_trans
+
+# Translate to Chinese
+ch_trans <- NULL
+ch_tr <- NULL 
+for (i in 1:length(paragraph)){ 
+  ch_tr <- translate(paragraph[i], from ="auto", to ="zh")[1]
+  ch_trans <- (rbind(ch_trans,ch_tr))
+}
+
+ch_trans <- as.character(ch_trans)
+ch_trans
+
+
+# Detect Language
+#Test 1
+language_detect <- c()
+
+for (i in paragraph) {
+  element <- detect_language(i)
+  language_detect <- c(language_detect, element)
+}
+data.frame(language_detect$LanguageCode,language_detect$Score)
+# Test 2
+language_detect2 <- c()
+
+for (i in ch_trans) {
+  element <- detect_language(i)
+  language_detect2 <- c(language_detect2, element)
+}
+data.frame(language_detect2$LanguageCode,language_detect2$Score)
+
+
+# Detect Sentimental in English
+
+df <- NULL
+a <- NULL 
+
+for (i in 1:length(paragraph)) {   
+
+  if (paragraph[i] > "") {
+    df <- detect_sentiment(paragraph[i])  
+    a <- rbind(a, df)
+  }
+}
+a
+
+
+# Sentmental Detection in Hungary
+df_h <- NULL
+h <- NULL 
+
+for (i in 1:length(hu_trans)) {   
+  
+  if (hu_trans[i] > "") {
+    df_h <- detect_sentiment(hu_trans[i])  
+    h <- rbind(h, df_h)
+  }
+}
+
+h
+
+
+# Sentmental Detection in Russian
+df_r <- NULL
+r <- NULL 
+
+for (i in 1:length(ru_trans)) {   
+  
+  if (ru_trans[i] > "") {
+    df_r <- detect_sentiment(ru_trans[i])  
+    r <- rbind(r, df_r)
+  }
+}
+
+r
+
+# Sentmental Detection in Russian
+df_c <- NULL
+c <- NULL 
+
+for (i in 1:length(ch_trans)) {   
+  
+  if (ch_trans[i] > "") {
+    df_c <- detect_sentiment(ch_trans[i])  
+    c <- rbind(c, df_c)
+  }
+}
+c
+
+chi<-as.data.frame(table(c$Sentiment))
+rus<-as.data.frame(table(r$Sentiment))
+hung<-as.data.frame(table(h$Sentiment))
+engl<-as.data.frame(table(a$Sentiment))
+
+compare <- merge(x = chi, y = rus, by = "Var1")
+colnames(compare)<-c("Sentimental","Chinese","Russians")
+compare
+
+compare2 <- merge(x = hung, y = engl, by = "Var1")
+colnames(compare2)<-c("Sentimental","Hungarian","English")
+compare2
+  
+final_compare <-merge(x = compare, y = compare2, by = "Sentimental")
+final_compare
+
+plot(final_compare$Sentimental, final_compare$Chinese, type = "l", col = 1, ylim = c(0,68 ))  
+lines(final_compare$Sentimenta, final_compare$Russians, type = "l", col = 2)
+lines(final_compare$Sentimenta, final_compare$Hungary, type = "l", col = 3)
+lines(final_compare$Sentimenta, final_compare$English, type = "l", col = 4)
+
+# Entity detection
+
+
+enti_df <- NULL
+enti <- NULL 
+
+for (i in 1:length(paragraph)) {   
+  
+  if (paragraph[i] > "") {
+    enti_df <- detect_entities(paragraph[i])  
+    enti <- rbind(enti,enti_df)
+  }
+}
+
+data.frame(enti$BeginOffset,enti$EndOffset,enti$Text,enti$Type,enti$Score)
+
+
+#Key phrase detection:
+
+
+kp_df <- NULL
+kp <- NULL 
+
+
+for (i in 1:length(paragraph)) {   
+  
+  if (paragraph[i] > "") {
+    kp_df <- detect_entities(paragraph[i])  
+    kp <- rbind(kp, kp_df)
+  }
+}
+
+data.frame(kp$BeginOffset,kp$EndOffset,kp$Text,kp$Type,kp$Score)
+
+
+
+
+
+
+
