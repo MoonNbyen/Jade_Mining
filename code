@@ -245,7 +245,7 @@ kp <- NULL
 for (i in 1:length(paragraph)) {   
   
   if (paragraph[i] > "") {
-    kp_df <- detect_entities(paragraph[i])  
+    kp_df <- detect_phrases(paragraph[i])  
     kp <- rbind(kp, kp_df)
   }
 }
